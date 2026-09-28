@@ -1,0 +1,50 @@
+package dev.bluff;
+
+import dev.bluff.sala.GeradorCodigoSala;
+import org.junit.jupiter.api.Test;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * O gerador é substituído por um mock para forçar colisões de código.
+ * Cada teste usa códigos próprios, porque o banco é compartilhado entre eles.
+ */
+class CodigoDeSalaRepetidoTest extends TesteDeIntegracao {
+
+    @MockitoBean
+    GeradorCodigoSala gerador;
+
+    @Test
+    void quandoOCodigoJaExisteGeraOutroETentaDeNovo() {
+        when(gerador.gerar()).thenReturn("AAAAAA", "AAAAAA", "AAAAAA", "BBBBBB");
+
+        Resposta primeira = post("/salas", null, """
+                {"nomeSala": "Primeira", "apelido": "Ana"}""");
+        Resposta segunda = post("/salas", null, """
+                {"nomeSala": "Segunda", "apelido": "Bia"}""");
+
+        assertThat(primeira.<String>json("$.codigoSala")).isEqualTo("AAAAAA");
+        assertThat(segunda.status()).isEqualTo(201);
+        assertThat(segunda.<String>json("$.codigoSala")).isEqualTo("BBBBBB");
+        assertThat(get("/salas/BBBBBB").<String>json("$.nome")).isEqualTo("Segunda");
+    }
+
+    @Test
+    void desisteDepoisDeCincoColisoes() {
+        when(gerador.gerar()).thenReturn("CCCCCC");
+        post("/salas", null, """
+                {"nomeSala": "Dona do código", "apelido": "Ana"}""");
+
+        Resposta resposta = post("/salas", null, """
+                {"nomeSala": "Azarada", "apelido": "Bia"}""");
+
+        assertThat(resposta.status()).isEqualTo(503);
+        assertThat(resposta.<String>json("$.codigo")).isEqualTo("CODIGO_SALA_INDISPONIVEL");
+        // 1 chamada para a primeira sala + 5 tentativas para a segunda
+        verify(gerador, times(6)).gerar();
+    }
+}
