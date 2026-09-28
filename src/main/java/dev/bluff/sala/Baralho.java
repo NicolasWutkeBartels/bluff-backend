@@ -1,5 +1,9 @@
 package dev.bluff.sala;
 
+import dev.bluff.erro.ErroNegocio;
+import dev.bluff.erro.TipoErro;
+
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -17,6 +21,13 @@ public enum Baralho {
     Baralho(String descricao, List<String> cartas) {
         this.descricao = descricao;
         this.cartas = cartas;
+    }
+
+    public static Baralho porCodigo(String codigo) {
+        return Arrays.stream(values())
+                .filter(baralho -> baralho.name().equalsIgnoreCase(codigo))
+                .findFirst()
+                .orElseThrow(() -> new ErroNegocio(TipoErro.BARALHO_INEXISTENTE, codigo));
     }
 
     public boolean temCarta(String valor) {
