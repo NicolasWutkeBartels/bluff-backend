@@ -3,12 +3,16 @@ package dev.bluff.sala;
 import dev.bluff.erro.Constraints;
 import dev.bluff.erro.ErroNegocio;
 import dev.bluff.erro.TipoErro;
+import dev.bluff.evento.EventoSala;
+import dev.bluff.evento.Presenca;
+import dev.bluff.evento.TipoEvento;
 import dev.bluff.participante.Papel;
 import dev.bluff.participante.Participante;
 import dev.bluff.participante.ParticipanteRepository;
 import dev.bluff.participante.ParticipanteResposta;
 import dev.bluff.rodada.MontadorDeRodada;
 import dev.bluff.rodada.RodadaRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,19 +33,25 @@ public class SalaService {
     private final MontadorDeRodada montadorDeRodada;
     private final GeradorCodigoSala geradorCodigo;
     private final TransactionTemplate transacao;
+    private final Presenca presenca;
+    private final ApplicationEventPublisher eventos;
 
     public SalaService(SalaRepository salaRepository,
                        ParticipanteRepository participanteRepository,
                        RodadaRepository rodadaRepository,
                        MontadorDeRodada montadorDeRodada,
                        GeradorCodigoSala geradorCodigo,
-                       TransactionTemplate transacao) {
+                       TransactionTemplate transacao,
+                       Presenca presenca,
+                       ApplicationEventPublisher eventos) {
         this.salaRepository = salaRepository;
         this.participanteRepository = participanteRepository;
         this.rodadaRepository = rodadaRepository;
         this.montadorDeRodada = montadorDeRodada;
         this.geradorCodigo = geradorCodigo;
         this.transacao = transacao;
+        this.presenca = presenca;
+        this.eventos = eventos;
     }
 
     /**
@@ -66,7 +76,7 @@ public class SalaService {
                     Sala sala = salaRepository.saveAndFlush(new Sala(codigo, requisicao.nomeSala().strip(), baralho));
                     Participante criador = participanteRepository.save(
                             new Participante(sala, requisicao.apelido().strip(), papel));
-                    return new SalaRespostas.Entrada(sala.getCodigo(), ParticipanteResposta.de(criador));
+                    return new SalaRespostas.Entrada(sala.getCodigo(), ParticipanteResposta.de(criador, false));
                 });
             } catch (DataIntegrityViolationException erro) {
                 if (!Constraints.violou(erro, Constraints.SALA_CODIGO)) {
@@ -86,7 +96,9 @@ public class SalaService {
         try {
             // A unicidade do apelido é garantida pelo banco; aqui só traduzimos o erro.
             Participante participante = participanteRepository.saveAndFlush(new Participante(sala, apelido, papel));
-            return new SalaRespostas.Entrada(sala.getCodigo(), ParticipanteResposta.de(participante));
+            ParticipanteResposta resposta = ParticipanteResposta.de(participante, false);
+            eventos.publishEvent(new EventoSala(sala.getCodigo(), TipoEvento.PARTICIPANTE_ENTROU, resposta));
+            return new SalaRespostas.Entrada(sala.getCodigo(), resposta);
         } catch (DataIntegrityViolationException erro) {
             if (Constraints.violou(erro, Constraints.PARTICIPANTE_APELIDO)) {
                 throw new ErroNegocio(TipoErro.APELIDO_EM_USO, apelido);
@@ -99,7 +111,7 @@ public class SalaService {
     public SalaRespostas.Estado estado(String codigoSala) {
         Sala sala = buscarSala(codigoSala);
         var participantes = participanteRepository.findBySalaOrderByCriadoEm(sala).stream()
-                .map(ParticipanteResposta::de)
+                .map(participante -> ParticipanteResposta.de(participante, presenca.estaOnline(participante.getId())))
                 .toList();
         var rodadaAtual = rodadaRepository.findFirstBySalaOrderByCriadoEmDesc(sala)
                 .map(montadorDeRodada::montar)

@@ -3,6 +3,8 @@ package dev.bluff.rodada;
 import dev.bluff.erro.Constraints;
 import dev.bluff.erro.ErroNegocio;
 import dev.bluff.erro.TipoErro;
+import dev.bluff.evento.EventoSala;
+import dev.bluff.evento.TipoEvento;
 import dev.bluff.participante.Participante;
 import dev.bluff.sala.Baralho;
 import dev.bluff.sala.Sala;
@@ -12,6 +14,7 @@ import dev.bluff.status.StatusRodada;
 import dev.bluff.status.StatusService;
 import dev.bluff.voto.Voto;
 import dev.bluff.voto.VotoRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,17 +35,20 @@ public class RodadaService {
     private final SalaService salaService;
     private final StatusService statusService;
     private final MontadorDeRodada montadorDeRodada;
+    private final ApplicationEventPublisher eventos;
 
     public RodadaService(RodadaRepository rodadaRepository,
                          VotoRepository votoRepository,
                          SalaService salaService,
                          StatusService statusService,
-                         MontadorDeRodada montadorDeRodada) {
+                         MontadorDeRodada montadorDeRodada,
+                         ApplicationEventPublisher eventos) {
         this.rodadaRepository = rodadaRepository;
         this.votoRepository = votoRepository;
         this.salaService = salaService;
         this.statusService = statusService;
         this.montadorDeRodada = montadorDeRodada;
+        this.eventos = eventos;
     }
 
     @Transactional
@@ -57,7 +63,9 @@ public class RodadaService {
         }
 
         Rodada rodada = rodadaRepository.save(new Rodada(sala, emVotacao, requisicao.titulo().strip()));
-        return montadorDeRodada.montar(rodada);
+        RodadaResposta resposta = montadorDeRodada.montar(rodada);
+        eventos.publishEvent(new EventoSala(sala.getCodigo(), TipoEvento.RODADA_INICIADA, resposta));
+        return resposta;
     }
 
     /** Registra o voto ou, se a pessoa já votou nesta rodada, troca a carta. */
@@ -78,6 +86,10 @@ public class RodadaService {
                 .ifPresentOrElse(
                         voto -> voto.trocarValor(valor),
                         () -> gravarVotoNovo(rodada, participante, valor));
+
+        // O evento diz só quem votou. O valor fica no banco até a revelação.
+        eventos.publishEvent(new EventoSala(rodada.getSala().getCodigo(), TipoEvento.VOTO_REGISTRADO,
+                new EventoSala.VotoRegistrado(rodada.getId(), participante.getId())));
     }
 
     @Transactional
@@ -94,7 +106,9 @@ public class RodadaService {
                 : validarCarta(rodada.getSala().getBaralho(), requisicao.estimativaFinal());
 
         rodada.revelar(statusService.buscarStatus(StatusRodada.DOMINIO, StatusRodada.REVEALED), estimativa);
-        return montadorDeRodada.montar(rodada);
+        RodadaResposta resposta = montadorDeRodada.montar(rodada);
+        eventos.publishEvent(new EventoSala(rodada.getSala().getCodigo(), TipoEvento.RODADA_REVELADA, resposta));
+        return resposta;
     }
 
     /**
