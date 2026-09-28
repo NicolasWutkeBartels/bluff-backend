@@ -1,0 +1,22 @@
+# Banco de desenvolvimento do Bluff.
+# A porta do host é 5433 para não brigar com um Postgres instalado localmente.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: bluff-postgres
+    environment:
+      POSTGRES_DB: bluff
+      POSTGRES_USER: bluff
+      POSTGRES_PASSWORD: bluff
+    ports:
+      - "5433:5432"
+    volumes:
+      - bluff-dados:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bluff -d bluff"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  bluff-dados:
