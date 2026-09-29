@@ -63,7 +63,7 @@ Valores iniciais:
 **Por que buscar sempre por código?** O UUID é gerado em cada banco (dev, teste, produção),
 então muda entre ambientes. O código é escrito na migration e é igual em todos.
 Por isso o front envia `sta_codigo` e o back usa um único método,
-`StatusService.buscarStatus(dominio, codigo)`, para transformar o código na entidade.
+`StatusService.buscarPorCodigo(dominio, codigo)`, para transformar o código na entidade.
 
 ### sala
 

@@ -26,13 +26,14 @@ cujas tabelas são criadas pelo **Flyway** e lidas pelo **JPA/Hibernate**.
 
 ## 2. As camadas e o papel de cada uma
 
-O código é organizado **por assunto** (`sala/`, `rodada/`, `voto/`...), e dentro de cada
-assunto aparecem as camadas clássicas:
+O código é organizado **por camada**: cada pacote de `dev.bluff` guarda um tipo de peça
+(`controller/`, `service/`, `repository/`, `model/`, `dto/`...). Os DTOs ficam separados por
+endpoint (`dto/sala/`, `dto/rodada/`...). As regras de nomes estão em [convencoes.md](convencoes.md).
 
 | Camada | Exemplo | O que faz | O que **não** faz |
 |---|---|---|---|
 | **Controller** | `RodadaController` | Traduz HTTP: lê caminho, corpo, cabeçalhos; escolhe o status (201, 204). | Não decide regra de negócio. |
-| **DTO** (records) | `RodadaRequisicoes.Votar`, `RodadaResposta` | Formato do que entra e sai. Validação de formato com `@NotBlank`, `@Size`. | Não é gravado no banco. |
+| **DTO** (records) | `VotarRequest`, `RodadaResponse` | Formato do que entra e sai. Validação de formato com `@NotBlank`, `@Size`. | Não é gravado no banco. |
 | **Service** | `RodadaService` | As regras: quem pode votar, em que estado, com que carta. Abre a transação (`@Transactional`). | Não sabe nada de HTTP nem de STOMP. |
 | **Repository** | `VotoRepository` | Conversa com o banco. O Spring Data gera a implementação a partir do nome do método (`findByRodadaAndParticipante`). | Não tem regra. |
 | **Entidade** | `Voto` | Espelho de uma linha da tabela. Tem pequenos comportamentos (`trocarValor`). | Não conhece outras camadas. |
@@ -51,15 +52,15 @@ A Bia clica na carta **8**.
 **No front**
 
 1. `bluff-frontend/src/components/sala/mao.tsx`: o botão da carta chama `aoVotar("8")`.
-2. `bluff-frontend/src/components/sala/tela-sala.tsx`: a mutation do React Query roda.
+2. `bluff-frontend/src/hooks/use-meu-voto.ts`: a mutation do React Query roda.
    Em `onMutate`, a carta vai para a mesa **antes** da resposta (atualização otimista) e o valor é
    guardado no `localStorage`, porque a API nunca vai devolvê-lo antes da revelação.
-3. `bluff-frontend/src/lib/api.ts` → `votar()`: o Axios faz
+3. `bluff-frontend/src/services/rodada.service.ts` → `rodadaService.votar()`: o Axios faz
    `POST /rodadas/{id}/votos` com `{"valor": "8"}` e o cabeçalho `X-Participante-Id`.
 
 **Na API**
 
-4. `RodadaController.votar`: o Spring converte o JSON em `RodadaRequisicoes.Votar`, roda a
+4. `RodadaController.votar`: o Spring converte o JSON em `VotarRequest`, roda a
    validação (`@Valid`) e lê o cabeçalho como `UUID`. Chama o service.
 5. `RodadaService.votar` (anotado com `@Transactional`: tudo aqui é uma transação só):
    - `rodadaRepository.buscarComTrava(id)` → `SELECT ... FOR UPDATE`. Se alguém estiver
@@ -70,12 +71,12 @@ A Bia clica na carta **8**.
      no fim da transação ele percebe a mudança e faz o `UPDATE` sozinho (*dirty checking*).
    - publica `EventoSala(VOTO_REGISTRADO, {rodadaId, participanteId})`, **sem o valor**.
 6. O método termina, o Spring faz o **commit**. Só então...
-7. `PublicadorDeEventos.publicar` (`@TransactionalEventListener(AFTER_COMMIT)`) envia o evento para
+7. `EventoSalaPublisher.publicar` (`@TransactionalEventListener(AFTER_COMMIT)`) envia o evento para
    `/topic/salas/{codigo}`. O controller responde **204 No Content**.
 
 **De volta aos navegadores**
 
-8. `bluff-frontend/src/lib/ao-vivo.ts`: todos que assinam o tópico recebem o evento, validam com
+8. `bluff-frontend/src/hooks/use-sala-ao-vivo.ts`: todos que assinam o tópico recebem o evento, validam com
    Zod e aplicam no cache: a carta da Bia aparece virada para baixo na mesa de todo mundo.
 
 ---
@@ -116,11 +117,11 @@ com a ideia de **tópicos**: quem assina um tópico recebe tudo o que for public
 - **Os clientes só escutam.** Toda ação vai por REST. Isso mantém validação, erros e testes num
   lugar só; o WebSocket serve apenas para avisar.
 - **Presença:** no frame `CONNECT`, o front manda `codigoSala` e `participanteId`.
-  `OuvinteDeConexoes` registra a sessão em `Presenca`; quando a última conexão de alguém fecha,
+  `ConexaoListener` registra a sessão em `PresencaRegistry`; quando a última conexão de alguém fecha,
   sai o evento `PARTICIPANTE_SAIU`.
 - **Reconexão:** o broker não guarda mensagens para quem estava fora. Então, a cada conexão
   (a primeira e as seguintes), o front busca `GET /salas/{codigo}` de novo e substitui o que tinha.
-  Veja o comentário no topo de `bluff-frontend/src/lib/ao-vivo.ts`.
+  Veja o comentário no topo de `bluff-frontend/src/hooks/use-sala-ao-vivo.ts`.
 - **Por que só depois do commit?** Se o evento saísse antes, um cliente poderia reagir buscando o
   estado da sala e não encontrar o dado ainda (ou encontrar algo que depois sofreu rollback).
 
@@ -134,24 +135,24 @@ com a ideia de **tópicos**: quem assina um tópico recebe tudo o que for public
 | Tentar outro código de sala em caso de colisão (até 5×) | `SalaService.criar` | Cada tentativa numa transação nova (`TransactionTemplate`): depois de um erro de constraint, a transação anterior fica inutilizável. |
 | Uma rodada `VOTING` por sala; só vota/revela em `VOTING` | `RodadaService` com travas pessimistas | Dependem do `sta_id`, que muda por ambiente; um índice parcial ficaria preso a um banco. A trava (`FOR UPDATE`) faz as requisições concorrentes passarem uma de cada vez. |
 | Observador não vota; carta precisa existir no baralho | `RodadaService` | Regras que dependem de enums do Java (`Papel`, `Baralho`). |
-| **Votos ocultos em `VOTING`** | `MontadorDeRodada` | Toda resposta de rodada (estado, histórico, eventos) é montada ali. Um só lugar decide se o valor sai do servidor. |
-| Status sempre por domínio + código | `StatusService.buscarStatus` | O UUID do status muda entre ambientes; o código, não. |
+| **Votos ocultos em `VOTING`** | `RodadaMapper` | Toda resposta de rodada (estado, histórico, eventos) é montada ali. Um só lugar decide se o valor sai do servidor. |
+| Status sempre por domínio + código | `StatusService.buscarPorCodigo` | O UUID do status muda entre ambientes; o código, não. |
 | Formato dos dados (campo vazio, tamanho) | DTOs com Bean Validation, e Zod no front | Erro rápido e específico por campo, antes de chegar à regra. |
 
 ---
 
 ## 7. Dez pontos do código para ler primeiro
 
-1. `bluff-backend/src/main/java/dev/bluff/rodada/MontadorDeRodada.java`: a regra dos votos ocultos inteira em 20 linhas.
-2. `bluff-backend/src/main/java/dev/bluff/rodada/RodadaService.java`: todas as regras de votação, com as travas.
-3. `bluff-backend/src/main/java/dev/bluff/sala/SalaService.java` → `criar`: retentativa do código com `TransactionTemplate`.
-4. `bluff-backend/src/main/java/dev/bluff/sala/GeradorCodigoSala.java`: `SecureRandom` e o alfabeto sem ambíguos.
-5. `bluff-backend/src/main/java/dev/bluff/evento/PublicadorDeEventos.java`: do evento do Spring ao tópico STOMP, após o commit.
-6. `bluff-backend/src/main/java/dev/bluff/erro/TratadorDeErros.java`: como toda falha vira o mesmo formato de erro.
+1. `bluff-backend/src/main/java/dev/bluff/mapper/RodadaMapper.java`: a regra dos votos ocultos inteira em 20 linhas.
+2. `bluff-backend/src/main/java/dev/bluff/service/RodadaService.java`: todas as regras de votação, com as travas.
+3. `bluff-backend/src/main/java/dev/bluff/service/SalaService.java` → `criar`: retentativa do código com `TransactionTemplate`.
+4. `bluff-backend/src/main/java/dev/bluff/util/CodigoSalaGenerator.java`: `SecureRandom` e o alfabeto sem ambíguos.
+5. `bluff-backend/src/main/java/dev/bluff/websocket/EventoSalaPublisher.java`: do evento do Spring ao tópico STOMP, após o commit.
+6. `bluff-backend/src/main/java/dev/bluff/exception/ApiExceptionHandler.java`: como toda falha vira o mesmo formato de erro.
 7. `bluff-backend/src/main/resources/db/migration/`: as seis migrations, na ordem. Compare com as entidades.
 8. `bluff-backend/src/test/java/dev/bluff/VotosOcultosTest.java`: a regra central provada por REST e por um cliente STOMP de verdade.
-9. `bluff-frontend/src/lib/ao-vivo.ts`: conexão, eventos aplicados no cache e ressincronização.
-10. `bluff-frontend/src/components/sala/mesa.tsx` + `carta-que-vira.tsx`: o estado do voto como estado da carta, e o flip da revelação.
+9. `bluff-frontend/src/hooks/use-sala-ao-vivo.ts`: conexão, eventos aplicados no cache e ressincronização.
+10. `bluff-frontend/src/components/sala/mesa.tsx` + `components/carta/carta-que-vira.tsx`: o estado do voto como estado da carta, e o flip da revelação.
 
 ---
 
