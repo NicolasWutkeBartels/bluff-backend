@@ -11,7 +11,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class VotoTest extends TesteDeIntegracao {
+class VotoTest extends IntegracaoTestBase {
 
     @Autowired
     JdbcTemplate jdbc;
@@ -36,7 +36,6 @@ class VotoTest extends TesteDeIntegracao {
         String rodada = iniciarRodada(sala[0], sala[1], "Login");
         votar(rodada, sala[1], "5");
 
-        // Contornando o service: a constraint uk_voto_rodada_participante é a última linha de defesa.
         assertThatThrownBy(() -> jdbc.update(
                 "insert into voto (rod_id, par_id, vot_valor) values (?, ?, '13')",
                 UUID.fromString(rodada), UUID.fromString(sala[1])))

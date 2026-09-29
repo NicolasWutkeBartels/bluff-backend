@@ -18,13 +18,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * A regra central do Bluff: enquanto a rodada está em VOTING, nenhuma resposta (REST ou WebSocket)
- * pode conter o valor de um voto. Além de checar o campo {@code valor}, os testes procuram o valor
- * votado no texto da rodada, para pegar um vazamento em qualquer outro campo.
- * (O texto da sala inteira não serve: a lista de cartas do baralho contém esses valores.)
- */
-class VotosOcultosTest extends TesteDeIntegracao {
+class VotosOcultosTest extends IntegracaoTestBase {
 
     @Test
     void emVotacaoOEstadoDaSalaMostraQuemVotouMasNaoOValor() {
@@ -94,7 +88,6 @@ class VotosOcultosTest extends TesteDeIntegracao {
         return estadoDaSala.substring(estadoDaSala.indexOf("\"rodadaAtual\""));
     }
 
-    /** Conecta um cliente STOMP de verdade e guarda o corpo de cada mensagem do tópico da sala. */
     private BlockingQueue<String> assinarSala(String codigoSala) throws Exception {
         WebSocketStompClient cliente = new WebSocketStompClient(new StandardWebSocketClient());
         StompSession sessao = cliente.connectAsync(
@@ -114,7 +107,6 @@ class VotosOcultosTest extends TesteDeIntegracao {
                 recebidas.add(new String((byte[]) payload, StandardCharsets.UTF_8));
             }
         });
-        // Dá tempo de a assinatura chegar ao broker antes de o teste disparar eventos.
         Thread.sleep(300);
         return recebidas;
     }

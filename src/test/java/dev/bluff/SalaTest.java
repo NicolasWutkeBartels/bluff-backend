@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class SalaTest extends TesteDeIntegracao {
+class SalaTest extends IntegracaoTestBase {
 
     @Test
     void criarSalaDevolveCodigoEPrimeiroParticipante() {

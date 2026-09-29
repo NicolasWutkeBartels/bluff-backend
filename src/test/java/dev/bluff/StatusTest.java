@@ -1,8 +1,8 @@
 package dev.bluff;
 
-import dev.bluff.erro.ErroNegocio;
-import dev.bluff.erro.TipoErro;
-import dev.bluff.status.StatusService;
+import dev.bluff.exception.NegocioException;
+import dev.bluff.exception.TipoErro;
+import dev.bluff.service.StatusService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -11,7 +11,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class StatusTest extends TesteDeIntegracao {
+class StatusTest extends IntegracaoTestBase {
 
     @Autowired
     StatusService statusService;
@@ -32,10 +32,10 @@ class StatusTest extends TesteDeIntegracao {
     }
 
     @Test
-    void buscarStatusInexistenteLancaErroDeNegocio() {
-        assertThatThrownBy(() -> statusService.buscarStatus("RODADA", "PAUSADA"))
-                .isInstanceOf(ErroNegocio.class)
-                .extracting(erro -> ((ErroNegocio) erro).getTipo())
+    void buscarPorCodigoInexistenteLancaErroDeNegocio() {
+        assertThatThrownBy(() -> statusService.buscarPorCodigo("RODADA", "PAUSADA"))
+                .isInstanceOf(NegocioException.class)
+                .extracting(erro -> ((NegocioException) erro).getTipo())
                 .isEqualTo(TipoErro.STATUS_INEXISTENTE);
     }
 

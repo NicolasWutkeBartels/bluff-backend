@@ -1,6 +1,6 @@
 package dev.bluff;
 
-import dev.bluff.sala.GeradorCodigoSala;
+import dev.bluff.util.CodigoSalaGenerator;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -9,14 +9,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * O gerador é substituído por um mock para forçar colisões de código.
- * Cada teste usa códigos próprios, porque o banco é compartilhado entre eles.
- */
-class CodigoDeSalaRepetidoTest extends TesteDeIntegracao {
+class CodigoDeSalaRepetidoTest extends IntegracaoTestBase {
 
     @MockitoBean
-    GeradorCodigoSala gerador;
+    CodigoSalaGenerator gerador;
 
     @Test
     void quandoOCodigoJaExisteGeraOutroETentaDeNovo() {
@@ -44,7 +40,6 @@ class CodigoDeSalaRepetidoTest extends TesteDeIntegracao {
 
         assertThat(resposta.status()).isEqualTo(503);
         assertThat(resposta.<String>json("$.codigo")).isEqualTo("CODIGO_SALA_INDISPONIVEL");
-        // 1 chamada para a primeira sala + 5 tentativas para a segunda
         verify(gerador, times(6)).gerar();
     }
 }
