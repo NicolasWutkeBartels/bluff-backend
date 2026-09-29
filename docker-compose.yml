@@ -1,5 +1,3 @@
-# Banco de desenvolvimento do Bluff.
-# A porta do host é 5433 para não brigar com um Postgres instalado localmente.
 services:
   postgres:
     image: postgres:17-alpine
